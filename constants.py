@@ -37,7 +37,7 @@ class Constants:
     name to name located on the top left corner of your bluestacks
     eg. Bluestacks App Player 1, Bluestacks App Player 2, etc
     """
-    window_name = "Bluestacks App Player"
+    window_name = "LDPlayer"
     # Make this False if detection_test is outputting a blank screen, otherwise True.
     focused_window = False
 
@@ -48,7 +48,7 @@ class Constants:
     """
     Generate a second window with detection annotated
     """
-    DEBUG = False
+    DEBUG = True
 
     #! Do not change these
     # Detector constants
@@ -99,7 +99,7 @@ class Constants:
         half = True
         imgsz = (384,640)
     #bot constant
-    movement_key = "middle"
+    movement_key = "left"
     midpoint_offset = 12
     
     float_int_dict = {

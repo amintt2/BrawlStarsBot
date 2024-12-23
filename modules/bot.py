@@ -54,8 +54,14 @@ class Brawlbot:
     def __init__(self,windowSize,offsets,speed,attack_range) -> None:
         self.lock = Lock()
         
-        # "brawler" chracteristic
+        # Pre-calculate frequently used values
         self.speed = speed
+        self.window_w = windowSize[0]
+        self.window_h = windowSize[1]
+        self.tile_w_ratio = self.window_w/self.tile_w
+        self.tile_h_ratio = self.window_h/self.tile_h
+        self.center_window = (self.window_w / 2, int((self.window_h / 2)+ self.midpoint_offset))
+
         # short range
         if attack_range >0 and attack_range <=4:
             range_multiplier = 1
@@ -65,7 +71,7 @@ class Brawlbot:
             range_multiplier = 0.85
             hide_multiplier = 1
         # long range
-        elif attack_range > 7:
+        else:  # attack_range > 7
             range_multiplier = 0.8
             hide_multiplier = 0.8
         
@@ -77,12 +83,6 @@ class Brawlbot:
         self.HIDINGTIME = hide_multiplier * 23
         
         self.timestamp = time()
-        self.window_w = windowSize[0]
-        self.window_h = windowSize[1]
-        self.center_window = (self.window_w / 2, int((self.window_h / 2)+ self.midpoint_offset))
-
-        # tile size of the game
-        # depended on the dimension of the game
         self.tileSize = round((round(self.window_w/self.tile_w)+round(self.window_h/self.tile_h))/2)
         self.state = BotState.INITIALIZING
         
@@ -94,7 +94,6 @@ class Brawlbot:
         self.player_index = 0
         self.bush_index = 1
         self.enemy_index = 2
-        
 
     # translate a pixel position on a screenshot image to a pixel position on the screen.
     # pos = (x, y)
@@ -273,14 +272,13 @@ class Brawlbot:
         sortedResults.sort(key=tile_distance)
         return sortedResults
         
-    def tile_distance(self,player_position,position):
+    def tile_distance(self, player_position, position):
         """
-        get the tile distance between two coordinate
-
-        :param player_position(tuple): position of the player
-        :param position(tuple): coordinate of some position
+        Optimized tile distance calculation
         """
-        return sqrt(((position[0] - player_position[0])/(self.window_w/self.tile_w))**2 + ((position[1] - player_position[1])/(self.window_h/self.tile_h))**2)
+        dx = (position[0] - player_position[0])/self.tile_w_ratio
+        dy = (position[1] - player_position[1])/self.tile_h_ratio
+        return sqrt(dx*dx + dy*dy)
     
     def find_bush(self):
         """
@@ -297,26 +295,35 @@ class Brawlbot:
 
     def move_to_bush(self):
         """
-        find the moving time from the distance and the player's speed
-        :return moveTime (float): The amount of time to move to the selected bush
+        Optimized movement calculation
         """
-        if self.bushResult:
-            # if len(self.bushResult) > 1:
-            #     index = 1
-            # else:
-            #     index = 0
-            x,y = self.bushResult[0]
-            if not(self.results[self.player_index]):
-                player_pos = self.center_window
-            else:
-                player_pos = self.results[self.player_index][0]
-            tileDistance = self.tile_distance(player_pos,(x,y))
-            x,y = self.get_screen_position((x,y))
-            py.mouseDown(button=Constants.movement_key,x=x, y=y)
-            moveTime = tileDistance/self.speed
-            moveTime = moveTime * self.timeFactor
-            print(f"Distance: {round(tileDistance,2)} tiles")
-            return moveTime
+        if not self.bushResult:
+            return 0
+            
+        x, y = self.bushResult[0]
+        player_pos = self.results[self.player_index][0] if self.results[self.player_index] else self.center_window
+        
+        # Calculate movement direction and distance in one pass
+        dx = x - player_pos[0]
+        dy = y - player_pos[1]
+        
+        # Determine movement keys
+        keys = []
+        if abs(dx) > 1:  # Add small threshold to prevent jitter
+            keys.append('d' if dx > 0 else 'a')
+        if abs(dy) > 1:  # Add small threshold to prevent jitter
+            keys.append('s' if dy > 0 else 'w')
+            
+        # Press movement keys
+        for key in keys:
+            py.keyDown(key)
+        
+        # Calculate move time
+        tileDistance = self.tile_distance(player_pos, (x,y))
+        moveTime = (tileDistance/self.speed) * self.timeFactor
+        
+        print(f"Distance: {round(tileDistance,2)} tiles")
+        return moveTime
     
     # enemy and attack method
     def attack(self):
@@ -342,8 +349,9 @@ class Brawlbot:
         :param key (string): key to be hold
         :param time (float): time to hold the key
         """
-        with py.hold(key):
-            sleep(time)
+        py.keyDown(key)
+        sleep(time)
+        py.keyUp(key)
 
     def storm_random_movement(self):
         """
@@ -354,8 +362,7 @@ class Brawlbot:
         else:
             move_keys = ["w", "a", "s", "d"]
         random_move = random.choice(move_keys)
-        hold_time = 1
-        self.hold_movement_key(random_move,hold_time)
+        self.hold_movement_key(random_move, 1)
     
     def stuck_random_movement(self):
         """
@@ -364,82 +371,68 @@ class Brawlbot:
         move_keys = self.get_movement_key(self.bush_index)
         if not(move_keys):
             move_keys = ["w", "a", "s", "d"]
-            move_keys = random.choice(move_keys)
-        with py.hold(move_keys):
-            sleep(1)
+        random_move = random.choice(move_keys)
+        self.hold_movement_key(random_move, 1)
 
-    def get_movement_key(self,index):
+    def get_movement_key(self, index):
         """
-        get enemy direction
-        :return:(List) List of x and y direction
+        Optimized movement key calculation
         """
-        # asign x and y direction
-        x_key = ""
-        y_key = ""
-        if self.results:
-            if self.results[self.player_index]:
-                player_pos = self.results[self.player_index][0]
-            # if player position in result is empty
-            # assume that player is in the middle of the screen
-            else:
-                player_pos = self.center_window
-            if self.results[index]:
-                # enemy index
-                if index == self.enemy_index:
-                    p0 = self.enemyResults[0]
-                elif index == self.bush_index:
-                    p0 = self.bushResult[0]
-                p1 = player_pos
-                xDiff , yDiff = tuple(np.subtract(p1, p0))
-                # right
-                if xDiff>0:
-                    x_key = "d"
-                # left
-                elif xDiff<0:
-                    x_key = "a"
-                # bottom
-                if yDiff>0:
-                    y_key = "s"
-                # top
-                elif yDiff<0:
-                    y_key = "w"
-                return [x_key,y_key]
-        return []
-    
+        if not self.results or not self.results[index]:
+            return []
+            
+        player_pos = self.results[self.player_index][0] if self.results[self.player_index] else self.center_window
+        target_pos = self.enemyResults[0] if index == self.enemy_index else self.bushResult[0]
+        
+        dx = player_pos[0] - target_pos[0]
+        dy = player_pos[1] - target_pos[1]
+        
+        keys = []
+        if abs(dx) > 1:
+            keys.append('d' if dx > 0 else 'a')
+        if abs(dy) > 1:
+            keys.append('s' if dy > 0 else 'w')
+            
+        return keys
+
     def enemy_random_movement(self):
         """
-        Move player away from the enemy and attack
+        Optimized enemy movement
         """
-        if not(self.enemy_move_key):
+        if not self.enemy_move_key:
             move_keys = self.get_movement_key(self.enemy_index)
-            if not(move_keys):
-                move_keys = ["w", "a", "s", "d"]
-                move_keys = random.choice(move_keys)
+            if not move_keys:
+                move_keys = random.choice(["w", "a", "s", "d"])
         else:
             move_keys = self.enemy_move_key
-        with py.hold(move_keys):
-            py.press("e",presses=2,interval=0.4)
+
+        # Combine movement and attack
+        if isinstance(move_keys, list):
+            for key in move_keys:
+                py.keyDown(key)
+        else:
+            py.keyDown(move_keys)
+            
+        py.press("e", presses=2, interval=0.2)  # Reduced interval for faster attacks
+        
+        if isinstance(move_keys, list):
+            for key in move_keys:
+                py.keyUp(key)
+        else:
+            py.keyUp(move_keys)
 
     def enemy_distance(self):
         """
-        Calculate the enemy distance from the player
+        Optimized enemy distance calculation
         """
-        if self.results:
-            # player coordinate
-            if self.results[self.player_index]:
-                player_pos = self.results[self.player_index][0]
-            # if player position in result is empty
-            # assume that player is in the middle of the screen
-            else:
-                player_pos = self.center_window
-            # enemy coordinate
-            if self.results[self.enemy_index]:
-                self.enemyResults = self.ordered_enemy_by_distance(self.enemy_index)
-                if self.enemyResults:
-                    enemyDistance = self.tile_distance(player_pos,self.enemyResults[0])
-                    # print(f"Closest enemy: {round(enemyDistance,2)} tiles")
-                    return enemyDistance
-        return None
+        if not self.results or not self.results[self.enemy_index]:
+            return None
+            
+        player_pos = self.results[self.player_index][0] if self.results[self.player_index] else self.center_window
+        self.enemyResults = sorted(self.results[self.enemy_index], 
+                                 key=lambda pos: self.tile_distance(player_pos, pos))
+        
+        return self.tile_distance(player_pos, self.enemyResults[0]) if self.enemyResults else None
     
     def is_enemy_in_range(self):
         """
@@ -554,105 +547,100 @@ class Brawlbot:
         t.setDaemon(True)
         t.start()
 
+    def release_movement_keys(self):
+        """
+        Release all movement keys (WASD)
+        """
+        for key in ['w', 'a', 's', 'd']:
+            py.keyUp(key)
+
     def stop(self):
         """
         stop the bot
         """
         self.stopped = True
+        # release all movement keys
+        self.release_movement_keys()
         # reset last player position
         self.last_player_pos = None
 
     def run(self):
+        """
+        Optimized main loop with reduced lock contention and better state management
+        """
         while not self.stopped:
-            sleep(0.01)
-            if self.state == BotState.INITIALIZING:
-                # do no bot actions until the startup waiting period is complete
-                if time() > self.timestamp + self.INITIALIZING_SECONDS:
-                    # start searching when the waiting period is over
-                    self.lock.acquire()
-                    self.state = BotState.SEARCHING
-                    self.lock.release()
+            sleep(0.01)  # Reduced sleep time for faster response
+            
+            current_state = self.state  # Cache current state to reduce lock access
+            current_time = time()
+            
+            if current_state == BotState.INITIALIZING:
+                if current_time > self.timestamp + self.INITIALIZING_SECONDS:
+                    with self.lock:
+                        self.state = BotState.SEARCHING
 
-            elif self.state == BotState.SEARCHING:
-                success = self.find_bush()
-                #if bush is detected
-                if success:
+            elif current_state == BotState.SEARCHING:
+                # Check enemy first for faster response
+                if self.is_enemy_in_range():
+                    with self.lock:
+                        self.state = BotState.ATTACKING
+                    continue
+                
+                if self.find_bush():
                     print("found bush")
                     self.moveTime = self.move_to_bush()
-                    self.lock.acquire()
-                    self.timestamp = time()
-                    self.state = BotState.MOVING
-                    self.lock.release()
-                #bush is not detected
+                    with self.lock:
+                        self.timestamp = current_time
+                        self.state = BotState.MOVING
                 else:
                     print("Cannot find bush")
                     self.storm_random_movement()
-                    # self.counter+=1
-                
-                if self.is_enemy_in_range():
-                        self.lock.acquire()
-                        self.state = BotState.ATTACKING
-                        self.lock.release()
 
-            elif self.state == BotState.MOVING:
-                # when player is moving check if player is stuck
-                if self.have_stopped_moving():
-                    # cancel moving
-                    py.mouseUp(button = Constants.movement_key)
+            elif current_state == BotState.MOVING:
+                # Check conditions in order of priority
+                if self.is_enemy_in_range():
+                    with self.lock:
+                        self.state = BotState.ATTACKING
+                elif self.have_stopped_moving():
+                    self.release_movement_keys()
                     self.stuck_random_movement()
-                    # and search for bush again
-                    self.lock.acquire()
-                    self.state = BotState.SEARCHING
-                    self.lock.release()
-                #if player is stuck
-                else:
-                    sleep(0.15)
-
-                if self.is_enemy_in_range():
-                    self.lock.acquire()
-                    self.state = BotState.ATTACKING
-                    self.lock.release()
-                # player successfully travel to the selected bush
-                if time() > self.timestamp + self.moveTime:
-                    py.mouseUp(button = Constants.movement_key)
+                    with self.lock:
+                        self.state = BotState.SEARCHING
+                elif current_time > self.timestamp + self.moveTime:
+                    self.release_movement_keys()
                     print("Hiding")
-                    self.lock.acquire()
-                    # change state to hiding
-                    self.timestamp = time()
-                    self.state = BotState.HIDING
-                    self.lock.release()
-                    
-            elif self.state == BotState.HIDING:
-                if time() > self.timestamp + self.HIDINGTIME or self.is_player_damaged():
-                    print("Changing state to search")
-                    self.lock.acquire()
-                    self.state = BotState.SEARCHING
-                    self.lock.release()
-
-                if self.centerOrder:
-                    if self.is_enemy_close():
-                        print("Enemy is nearby")
-                        self.lock.acquire()
-                        self.state = BotState.ATTACKING
-                        self.lock.release()
+                    with self.lock:
+                        self.timestamp = current_time
+                        self.state = BotState.HIDING
                 else:
-                    if self.is_enemy_in_range():
-                        print("Enemy in range")
-                        self.lock.acquire()
+                    sleep(0.1)  # Slightly reduced sleep time
+
+            elif current_state == BotState.HIDING:
+                # Check conditions in order of priority
+                if self.is_player_damaged() or current_time > self.timestamp + self.HIDINGTIME:
+                    print("Changing state to search")
+                    with self.lock:
+                        self.state = BotState.SEARCHING
+                elif self.centerOrder and self.is_enemy_close():
+                    print("Enemy is nearby")
+                    with self.lock:
                         self.state = BotState.ATTACKING
-                        self.lock.release()
-            elif self.state == BotState.ATTACKING:
+                elif not self.centerOrder and self.is_enemy_in_range():
+                    print("Enemy in range")
+                    with self.lock:
+                        self.state = BotState.ATTACKING
+
+            elif current_state == BotState.ATTACKING:
                 if self.is_enemy_in_range():
                     self.enemy_random_movement()
                 else:
-                    self.lock.acquire()
-                    self.state = BotState.SEARCHING
-                    self.lock.release()
-                    
-            self.fps = (1 / (time() - self.loop_time))
-            self.loop_time = time()
+                    with self.lock:
+                        self.state = BotState.SEARCHING
+            
+            # Update FPS with less frequent calculations
+            if self.count % 10 == 0:  # Only update FPS every 10 iterations
+                self.fps = 1 / (current_time - self.loop_time)
+                self.avg_fps = (self.avg_fps * self.count + self.fps) / (self.count + 1)
+            
+            self.loop_time = current_time
             self.count += 1
-            if self.count == 1:
-                self.avg_fps = self.fps
-            else:
-                self.avg_fps = (self.avg_fps*self.count+self.fps)/(self.count + 1)

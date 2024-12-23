@@ -1,3 +1,15 @@
+# Control Configuration
+
+## Supported Emulators
+- LDPlayer
+- BlueStacks (optional)
+
+### LDPlayer Setup
+1. Install LDPlayer on your system
+2. Install Brawl Stars in LDPlayer
+3. Make sure the window title matches "LDPlayer"
+4. Launch the game through LDPlayer
+
 The game control scheme (com.supercell.brawlstars.cfg) as shown can be found in the [control folder](https://github.com/Jooi025/BrawlStarsBot/tree/main/control)
 
 1. Open Bluestacks and select game control on the side panel, as shown below.
